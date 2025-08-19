@@ -1,0 +1,24 @@
+🚀 How to Play
+The goal is to reach the green portal at the end of each of the 30 levels. The game gets progressively faster and more difficult as you advance.
+
+Controls
+Move Left/Right: Arrow Keys (← / →)
+
+Jump / Double Jump: Spacebar
+
+✨ Features
+Full 3D Graphics: A dynamic 3D world built with three.js.
+
+30 Procedurally Generated Levels: Each level is randomly generated, offering high replayability. The difficulty increases as you progress.
+
+Double Jump: Master the double jump to clear wide gaps and escape tricky situations.
+
+Power-ups:
+
+🟡 Invincibility Orb: Makes you immune to obstacles for a short time.
+
+🔵 Speed Boost Orb: Greatly increases your forward and side-to-side speed.
+
+Dynamic Environments: The theme and color scheme of the world change as you advance through the levels.
+
+Tricky Traps: Watch out for purple platforms! They look safe but will fall away as soon as you land on them.
