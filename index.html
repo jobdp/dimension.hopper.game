@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dimension Hopper 3D</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            color: #fff;
+            font-family: 'Orbitron', sans-serif;
+        }
+        #gameCanvas {
+            display: block;
+        }
+        .ui-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            padding: 20px;
+            box-sizing: border-box;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            pointer-events: none;
+            text-shadow: 2px 2px 4px #000;
+        }
+        #level-display {
+            font-size: 2em;
+            font-weight: 700;
+        }
+        #powerup-status {
+            font-size: 1.5em;
+            background-color: rgba(0, 255, 255, 0.7);
+            color: #000;
+            padding: 10px 20px;
+            border-radius: 10px;
+            display: none; /* Hidden by default */
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.5);
+        }
+        #message-box {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.8);
+            padding: 40px;
+            border-radius: 15px;
+            text-align: center;
+            font-size: 1.5rem;
+            display: none; /* Hidden by default */
+            z-index: 10;
+            border: 2px solid #0ff;
+        }
+        #message-box h2 {
+            font-size: 2.5rem;
+            margin-top: 0;
+            color: #0ff;
+        }
+        #message-box p {
+            margin-bottom: 30px;
+        }
+        #message-box button {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.2rem;
+            padding: 15px 30px;
+            border: 2px solid #fff;
+            border-radius: 8px;
+            background-color: #ff00ff;
+            color: #fff;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 0 20px #ff00ff;
+        }
+        #message-box button:hover {
+            background-color: #fff;
+            color: #ff00ff;
+            box-shadow: 0 0 30px #fff;
+        }
+    </style>
+</head>
+<body>
+    <div class="ui-container">
+        <div id="level-display">LEVEL 1</div>
+        <div id="powerup-status"></div>
+    </div>
+
+    <div id="message-box">
+        <h2 id="message-title">GAME OVER</h2>
+        <p id="message-text">Your final score: 0</p>
+        <button id="action-button">Play Again</button>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <script>
+        // --- Basic Setup ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('gameCanvas'), antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.shadowMap.enabled = true;
+
+        // --- UI Elements ---
+        const levelDisplay = document.getElementById('level-display');
+        const powerupStatus = document.getElementById('powerup-status');
+        const messageBox = document.getElementById('message-box');
+        const messageTitle = document.getElementById('message-title');
+        const messageText = document.getElementById('message-text');
+        const actionButton = document.getElementById('action-button');
+
+        // --- Game State ---
+        let player, keys = {}, playerSpeed = 0.3, gravity = -0.02, onGround = false;
+        let jumpsLeft = 2;
+        let gameObjects = [];
+        let isInvincible = false, isSpedUp = false;
+        let powerupTimer = 0;
+        let gameOver = true;
+        let currentLevel = 0;
+        const totalLevels = 30;
+        let forwardSpeed = 0.12;
+
+        // --- Themes ---
+        const themes = [
+            { fog: 0x000033, platform: 0x4444ff }, // Blue
+            { fog: 0x330033, platform: 0xff44ff }, // Purple/Pink
+            { fog: 0x003300, platform: 0x44ff44 }, // Green
+            { fog: 0x333300, platform: 0xffff44 }, // Yellow
+        ];
+        let currentTheme;
+
+        // --- Lighting and Scene ---
+        function setupScene() {
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(10, 20, 5);
+            directionalLight.castShadow = true;
+            scene.add(directionalLight);
+
+            // Starfield
+            const starGeometry = new THREE.BufferGeometry();
+            const starVertices = [];
+            for (let i = 0; i < 10000; i++) {
+                const x = (Math.random() - 0.5) * 1000;
+                const y = (Math.random() - 0.5) * 1000;
+                const z = (Math.random() - 0.5) * 1000;
+                starVertices.push(x, y, z);
+            }
+            starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
+            const starMaterial = new THREE.PointsMaterial({ color: 0xffffff, size: 0.7 });
+            const stars = new THREE.Points(starGeometry, starMaterial);
+            scene.add(stars);
+        }
+
+        // --- Player ---
+        function createPlayer() {
+            const geometry = new THREE.SphereGeometry(0.6, 32, 16);
+            const material = new THREE.MeshPhongMaterial({ color: 0xff00ff });
+            player = new THREE.Mesh(geometry, material);
+            player.castShadow = true;
+            player.velocity = new THREE.Vector3(0, 0, 0);
+            player.boundingBox = new THREE.Box3().setFromObject(player);
+            scene.add(player);
+        }
+        
+        // --- Level Generation ---
+        function generateLevelData(levelIndex) {
+            const levelData = [];
+            const difficulty = levelIndex / totalLevels; // 0.0 to 1.0
+
+            // Level parameters based on difficulty
+            const numPlatforms = 15 + Math.floor(difficulty * 15);
+            const maxZGap = 2 + difficulty * 3; // *** REDUCED GAP DISTANCE ***
+            const platformSizeMin = 8 - difficulty * 4;
+            const trapChance = 0.1 + difficulty * 0.3;
+
+            let lastX = 0;
+            let lastZ = 0;
+            let lastPlatformDepth = 15;
+
+            // Start platform
+            levelData.push({ type: 0, pos: [0, -1, 0], size: [12, 1, 15] });
+
+            for (let i = 0; i < numPlatforms; i++) {
+                const zGap = 1 + Math.random() * maxZGap;
+                const platformDepth = platformSizeMin + Math.random() * 4;
+                
+                // *** BUG FIX: Correctly calculate position based on edges, not centers ***
+                const newZ = lastZ - (lastPlatformDepth / 2) - zGap - (platformDepth / 2);
+
+                const newX = lastX + (Math.random() - 0.5) * 12;
+                const newY = -1 + (Math.random() - 0.5) * 4;
+                const sizeX = platformSizeMin + Math.random() * 6;
+
+                const rand = Math.random();
+                if (rand < trapChance && i < numPlatforms - 2) { // Add a trap
+                    const trapSizeX = 4;
+                    const trapPlatformDepth = 4;
+                    const trapZ = lastZ - (lastPlatformDepth / 2) - zGap - (trapPlatformDepth / 2);
+                    levelData.push({ type: 5, pos: [newX, newY, trapZ], size: [trapSizeX, 1, trapPlatformDepth] });
+
+                    const nextZGap = 2.5;
+                    const nextPlatformDepth = 6 + Math.random() * 4;
+                    const nextZ = trapZ - (trapPlatformDepth / 2) - nextZGap - (nextPlatformDepth / 2);
+                    const nextX = newX + (Math.random() - 0.5) * 4;
+                    const nextY = newY;
+
+                    levelData.push({ type: 0, pos: [nextX, nextY, nextZ], size: [6, 1, nextPlatformDepth] });
+
+                    lastX = nextX;
+                    lastZ = nextZ;
+                    lastPlatformDepth = nextPlatformDepth;
+                    
+                    i++; 
+                } else { 
+                    let type = 0;
+                    if (rand < trapChance + 0.1) {
+                        levelData.push({ type: 1, pos: [newX, newY + 1.5, newZ], size: [1, 1, 1] });
+                    } else if (rand < trapChance + 0.15) {
+                        const powerupType = Math.random() < 0.5 ? 2 : 3;
+                        levelData.push({ type: powerupType, pos: [newX, newY + 1.5, newZ], size: [0.7, 0.7, 0.7] });
+                    }
+                    levelData.push({ type, pos: [newX, newY, newZ], size: [sizeX, 1, platformDepth] });
+                    lastX = newX;
+                    lastZ = newZ;
+                    lastPlatformDepth = platformDepth;
+                }
+            }
+
+            // End Gate
+            levelData.push({ type: 4, pos: [lastX, -1 + 3, lastZ - (lastPlatformDepth / 2) - 8], size: [3, 4, 1] });
+
+            return levelData;
+        }
+
+        // --- Level Loading ---
+        function loadLevel(levelIndex) {
+            gameObjects.forEach(obj => scene.remove(obj.mesh));
+            gameObjects = [];
+
+            if (levelIndex >= totalLevels) {
+                showEndGameMessage();
+                return;
+            }
+            
+            if (levelIndex % 5 === 0) {
+                changeTheme();
+            }
+
+            const levelData = generateLevelData(levelIndex);
+            levelData.forEach(data => {
+                let mesh, material, geometry;
+                const { type, pos, size } = data;
+                
+                switch(type) {
+                    case 0: // Platform
+                        geometry = new THREE.BoxGeometry(...size);
+                        material = new THREE.MeshStandardMaterial({ color: currentTheme.platform, metalness: 0.2, roughness: 0.8 });
+                        break;
+                    case 1: // Obstacle
+                        geometry = new THREE.ConeGeometry(size[0], size[1] * 2, 4);
+                        material = new THREE.MeshPhongMaterial({ color: 0xff4444 });
+                        break;
+                    case 2: // Invincibility
+                    case 3: // Speed Boost
+                        geometry = new THREE.SphereGeometry(size[0], 16, 8);
+                        material = new THREE.MeshPhongMaterial({ 
+                            color: type === 2 ? 0xffff00 : 0x00ffff, 
+                            emissive: type === 2 ? 0xffff00 : 0x00ffff 
+                        });
+                        break;
+                    case 4: // End Gate
+                        geometry = new THREE.BoxGeometry(...size);
+                        material = new THREE.MeshPhongMaterial({ color: 0x00ff00, emissive: 0x00ff00, transparent: true, opacity: 0.7 });
+                        break;
+                    case 5: // Trap
+                        geometry = new THREE.BoxGeometry(...size);
+                        material = new THREE.MeshStandardMaterial({ color: 0x8844ff });
+                        break;
+                }
+
+                mesh = new THREE.Mesh(geometry, material);
+                mesh.position.set(...pos);
+                mesh.receiveShadow = true;
+                mesh.castShadow = true;
+                scene.add(mesh);
+                
+                const boundingBox = new THREE.Box3().setFromObject(mesh);
+                gameObjects.push({ mesh, type, boundingBox, originalY: pos[1] });
+            });
+            
+            player.position.set(0, 2, 0);
+            player.velocity.set(0, 0, 0);
+            levelDisplay.textContent = `LEVEL ${levelIndex + 1}`;
+            gameOver = false;
+        }
+
+        function changeTheme() {
+            currentTheme = themes[Math.floor(Math.random() * themes.length)];
+            scene.fog = new THREE.Fog(currentTheme.fog, 10, 100);
+        }
+
+        // --- Game Logic ---
+        function updatePlayer() {
+            if (gameOver) return;
+
+            const baseSpeed = 0.12;
+            const speedIncrement = 0.005;
+            let levelSpeed = baseSpeed + (currentLevel * speedIncrement);
+            let currentForwardSpeed = levelSpeed * (isSpedUp ? 2 : 1);
+            player.velocity.z = -currentForwardSpeed;
+
+            if (keys['arrowleft']) player.velocity.x = -playerSpeed;
+            else if (keys['arrowright']) player.velocity.x = playerSpeed;
+            else player.velocity.x = 0;
+            
+            player.position.x += player.velocity.x;
+            player.position.z += player.velocity.z;
+
+            player.velocity.y += gravity;
+            player.position.y += player.velocity.y;
+            
+            player.boundingBox.setFromObject(player);
+
+            onGround = false;
+            checkCollisions();
+            
+            if (player.position.y < -20) {
+                handleDeath();
+            }
+
+            if (powerupTimer > 0) {
+                powerupTimer -= 1/60;
+                if (powerupTimer <= 0) {
+                    resetPowerups();
+                }
+            }
+        }
+
+        function checkCollisions() {
+            let standingOnSomething = false;
+            for (let i = gameObjects.length - 1; i >= 0; i--) {
+                const obj = gameObjects[i];
+                if (player.boundingBox.intersectsBox(obj.boundingBox)) {
+                    const collisionType = obj.type;
+                    
+                    switch(collisionType) {
+                        case 0:
+                        case 5:
+                            if (player.velocity.y <= 0 && player.position.y > obj.mesh.position.y) {
+                                if (collisionType === 5) {
+                                    obj.mesh.position.y -= 0.2;
+                                    if (obj.mesh.position.y < obj.originalY - 10) {
+                                        scene.remove(obj.mesh);
+                                        gameObjects.splice(i, 1);
+                                    }
+                                } else {
+                                    player.position.y = obj.boundingBox.max.y + player.geometry.parameters.radius;
+                                    player.velocity.y = 0;
+                                    standingOnSomething = true;
+                                    jumpsLeft = 2;
+                                }
+                            }
+                            break;
+                        case 1:
+                            if (!isInvincible) handleDeath();
+                            break;
+                        case 2:
+                        case 3:
+                            activatePowerup(collisionType === 2 ? 'invincible' : 'speed');
+                            scene.remove(obj.mesh);
+                            gameObjects.splice(i, 1);
+                            break;
+                        case 4:
+                            handleLevelComplete();
+                            break;
+                    }
+                }
+            }
+            onGround = standingOnSomething;
+        }
+
+        function handleDeath() {
+            if (gameOver) return;
+            gameOver = true;
+            showMessage("YOU FAILED", "The dimension was unstable. Try again?", `Retry Level ${currentLevel + 1}`);
+        }
+
+        function handleLevelComplete() {
+            if (gameOver) return;
+            gameOver = true;
+            currentLevel++;
+            if (currentLevel >= totalLevels) {
+                showEndGameMessage();
+            } else {
+                showMessage("LEVEL COMPLETE!", `Ready for Level ${currentLevel + 1}?`, `Start Level ${currentLevel + 1}`);
+            }
+        }
+
+        function showEndGameMessage() {
+            showMessage("CONGRATULATIONS!", `You've conquered all ${totalLevels} dimensions!`, "Play Again");
+            currentLevel = 0;
+        }
+        
+        function activatePowerup(type) {
+            resetPowerups();
+            powerupTimer = 5;
+            powerupStatus.style.display = 'block';
+            if (type === 'invincible') {
+                isInvincible = true;
+                player.material.emissive.setHex(0xffff00);
+                powerupStatus.textContent = "INVINCIBLE!";
+            } else if (type === 'speed') {
+                isSpedUp = true;
+                player.material.emissive.setHex(0x00ffff);
+                powerupStatus.textContent = "SPEED BOOST!";
+            }
+        }
+
+        function resetPowerups() {
+            isInvincible = false;
+            isSpedUp = false;
+            player.material.emissive.setHex(0x000000);
+            powerupStatus.style.display = 'none';
+        }
+
+        // --- Animation Loop ---
+        function animate() {
+            requestAnimationFrame(animate);
+            if (!gameOver) {
+                updatePlayer();
+            }
+
+            camera.position.x = player.position.x * 0.5;
+            camera.position.y = player.position.y + 6;
+            camera.position.z = player.position.z + 12;
+            camera.lookAt(player.position);
+            
+            gameObjects.forEach(obj => {
+                if (obj.type === 2 || obj.type === 3) {
+                    obj.mesh.rotation.y += 0.05;
+                }
+            });
+
+            renderer.render(scene, camera);
+        }
+
+        // --- Event Listeners and UI ---
+        window.addEventListener('keydown', (e) => keys[e.key.toLowerCase()] = true);
+        window.addEventListener('keyup', (e) => keys[e.key.toLowerCase()] = false);
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && jumpsLeft > 0 && !gameOver) {
+                player.velocity.y = 0.4;
+                jumpsLeft--;
+                onGround = false;
+            }
+        });
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        
+        actionButton.addEventListener('click', () => {
+            messageBox.style.display = 'none';
+            loadLevel(currentLevel);
+        });
+
+        function showMessage(title, text, buttonText) {
+            messageTitle.textContent = title;
+            messageText.textContent = text;
+            actionButton.textContent = buttonText;
+            messageBox.style.display = 'block';
+        }
+
+        // --- Initialization ---
+        setupScene();
+        createPlayer();
+        showMessage("DIMENSION HOPPER", `Conquer all ${totalLevels} levels to win!`, "Start Level 1");
+        animate();
+
+    </script>
+</body>
+</html>
